@@ -1,0 +1,652 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationRole {
+  ZYRVA_ADMIN
+  COMPANY_MANAGER
+  ATTENDANT
+  VIEWER
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum ClientCompanyStatus {
+  ONBOARDING
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum AgentStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum AgentVersionStatus {
+  DRAFT
+  PUBLISHED
+  RETIRED
+}
+
+enum KnowledgeSourceType {
+  TEXT
+  FAQ
+  PDF
+  DOCX
+  TXT
+  CSV
+  URL
+  CATALOG
+}
+
+enum ProcessingStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum ChannelType {
+  WHATSAPP
+  WEB_CHAT
+  INSTAGRAM
+  MESSENGER
+  EMAIL
+}
+
+enum ChannelStatus {
+  DISCONNECTED
+  CONFIGURING
+  ACTIVE
+  PAUSED
+  ERROR
+}
+
+enum LeadStage {
+  NEW
+  QUALIFYING
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  CONVERTED
+  LOST
+}
+
+enum ConversationStatus {
+  NEW
+  AI_ACTIVE
+  WAITING_CUSTOMER
+  WAITING_HUMAN
+  HUMAN_ACTIVE
+  RESOLVED
+  ARCHIVED
+}
+
+enum ConversationMode {
+  AI
+  HUMAN
+  PAUSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+  INTERNAL
+}
+
+enum MessageSender {
+  CONTACT
+  AI
+  HUMAN
+  SYSTEM
+}
+
+enum MessageContentType {
+  TEXT
+  BUTTON
+  INTERACTIVE
+  IMAGE
+  AUDIO
+  DOCUMENT
+  LOCATION
+  UNKNOWN
+}
+
+enum DeliveryStatus {
+  RECEIVED
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum ToolRisk {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AutomationStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  DISABLED
+}
+
+enum WebhookStatus {
+  RECEIVED
+  QUEUED
+  PROCESSING
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum UsageKind {
+  MESSAGE_IN
+  MESSAGE_OUT
+  MODEL_CALL
+  EMBEDDING
+  TOOL_CALL
+  HANDOFF
+  ERROR
+}
+
+model User {
+  id                     String               @id @default(cuid())
+  email                  String               @unique
+  name                   String
+  passwordHash           String?
+  isPlatformAdmin        Boolean              @default(false)
+  disabledAt             DateTime?            @db.Timestamptz(3)
+  createdAt              DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime             @updatedAt @db.Timestamptz(3)
+  memberships            OrganizationMember[]
+  createdAgentVersions   AgentVersion[]       @relation("AgentVersionCreator")
+  publishedAgentVersions AgentVersion[]       @relation("AgentVersionPublisher")
+  assignedConversations  Conversation[]       @relation("ConversationAssignee")
+  sentMessages           Message[]            @relation("HumanMessageSender")
+  assignedLeads          Lead[]               @relation("LeadAssignee")
+  auditLogs              AuditLog[]           @relation("AuditActor")
+}
+
+model Organization {
+  id                  String               @id @default(cuid())
+  slug                String               @unique
+  name                String
+  status              OrganizationStatus   @default(ACTIVE)
+  timezone            String               @default("America/Fortaleza")
+  countryCode         String               @default("BR")
+  currency            String               @default("BRL")
+  monthlyTokenLimit   Int                  @default(1000000)
+  monthlyMessageLimit Int                  @default(10000)
+  settings            Json                 @default("{}")
+  createdAt           DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(3)
+  members             OrganizationMember[]
+  clientCompanies     ClientCompany[]
+  agents              Agent[]
+  agentVersions       AgentVersion[]
+  knowledgeSources    KnowledgeSource[]
+  knowledgeChunks     KnowledgeChunk[]
+  channelConnections  ChannelConnection[]
+  contacts            Contact[]
+  leads               Lead[]
+  conversations       Conversation[]
+  messages            Message[]
+  tools               Tool[]
+  agentTools          AgentTool[]
+  automations         Automation[]
+  webhookEvents       WebhookEvent[]
+  usageRecords        UsageRecord[]
+  auditLogs           AuditLog[]
+}
+
+model OrganizationMember {
+  id              String           @id @default(cuid())
+  organizationId  String
+  clientCompanyId String?
+  userId          String
+  role            OrganizationRole
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany   ClientCompany?   @relation(fields: [organizationId, clientCompanyId], references: [organizationId, id], onDelete: Restrict)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, clientCompanyId])
+  @@index([userId, role])
+}
+
+model ClientCompany {
+  id                 String               @id @default(cuid())
+  organizationId     String
+  slug               String
+  name               String
+  legalName          String?
+  status             ClientCompanyStatus  @default(ONBOARDING)
+  businessType       String
+  description        String?
+  timezone           String               @default("America/Fortaleza")
+  phone              String?
+  email              String?
+  settings           Json                 @default("{}")
+  isDemo             Boolean              @default(false)
+  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime             @updatedAt @db.Timestamptz(3)
+  organization       Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members            OrganizationMember[]
+  agents             Agent[]
+  knowledgeSources   KnowledgeSource[]
+  knowledgeChunks    KnowledgeChunk[]
+  channelConnections ChannelConnection[]
+  contacts           Contact[]
+  leads              Lead[]
+  conversations      Conversation[]
+  automations        Automation[]
+  webhookEvents      WebhookEvent[]
+
+  @@unique([organizationId, slug])
+  @@unique([organizationId, id])
+  @@index([organizationId, status])
+}
+
+model Agent {
+  id                 String              @id @default(cuid())
+  organizationId     String
+  clientCompanyId    String
+  name               String
+  description        String?
+  status             AgentStatus         @default(DRAFT)
+  currentDraft       Json
+  publishedVersionId String?             @unique
+  publishedAt        DateTime?           @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany      ClientCompany       @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  publishedVersion   AgentVersion?       @relation("PublishedAgentVersion", fields: [publishedVersionId], references: [id], onDelete: SetNull)
+  versions           AgentVersion[]      @relation("AgentVersions")
+  knowledgeSources   KnowledgeSource[]
+  knowledgeChunks    KnowledgeChunk[]
+  channelConnections ChannelConnection[]
+  conversations      Conversation[]
+  agentTools         AgentTool[]
+  usageRecords       UsageRecord[]
+
+  @@unique([organizationId, clientCompanyId, name])
+  @@unique([organizationId, clientCompanyId, id])
+  @@unique([organizationId, id])
+  @@index([organizationId, status])
+  @@index([organizationId, clientCompanyId])
+}
+
+model AgentVersion {
+  id                String             @id @default(cuid())
+  organizationId    String
+  agentId           String
+  version           Int
+  status            AgentVersionStatus @default(DRAFT)
+  configuration     Json
+  changeSummary     String?
+  createdById       String?
+  publishedById     String?
+  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
+  publishedAt       DateTime?          @db.Timestamptz(3)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent             Agent              @relation("AgentVersions", fields: [agentId], references: [id], onDelete: Cascade)
+  publishedForAgent Agent?             @relation("PublishedAgentVersion")
+  createdBy         User?              @relation("AgentVersionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  publishedBy       User?              @relation("AgentVersionPublisher", fields: [publishedById], references: [id], onDelete: SetNull)
+  usageRecords      UsageRecord[]
+  conversations     Conversation[]
+
+  @@unique([agentId, version])
+  @@unique([organizationId, agentId, id])
+  @@unique([organizationId, id])
+  @@index([organizationId, agentId, status])
+}
+
+model KnowledgeSource {
+  id              String              @id @default(cuid())
+  organizationId  String
+  clientCompanyId String
+  agentId         String?
+  type            KnowledgeSourceType
+  title           String
+  originalName    String?
+  mimeType        String?
+  sourceUrl       String?
+  contentHash     String?
+  rawText         String?
+  status          ProcessingStatus    @default(PENDING)
+  errorCode       String?
+  metadata        Json                @default("{}")
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany   ClientCompany       @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  agent           Agent?              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  chunks          KnowledgeChunk[]
+
+  @@unique([organizationId, clientCompanyId, contentHash])
+  @@unique([organizationId, clientCompanyId, id])
+  @@unique([organizationId, id])
+  @@index([organizationId, agentId, status])
+}
+
+model KnowledgeChunk {
+  id              String                       @id @default(cuid())
+  organizationId  String
+  clientCompanyId String
+  sourceId        String
+  agentId         String?
+  sequence        Int
+  content         String
+  tokenCount      Int?
+  embedding       Unsupported("vector(1536)")?
+  metadata        Json                         @default("{}")
+  createdAt       DateTime                     @default(now()) @db.Timestamptz(3)
+  organization    Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany   ClientCompany                @relation(fields: [organizationId, clientCompanyId], references: [organizationId, id], onDelete: Cascade)
+  source          KnowledgeSource              @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  agent           Agent?                       @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceId, sequence])
+  @@index([organizationId, clientCompanyId, agentId])
+}
+
+model ChannelConnection {
+  id                    String         @id @default(cuid())
+  organizationId        String
+  clientCompanyId       String
+  agentId               String?
+  type                  ChannelType    @default(WHATSAPP)
+  status                ChannelStatus  @default(DISCONNECTED)
+  label                 String
+  phoneNumberId         String?        @unique
+  whatsappBusinessId    String?
+  displayPhoneNumber    String?
+  accessTokenCiphertext String?
+  tokenKeyVersion       Int?
+  lastVerifiedAt        DateTime?      @db.Timestamptz(3)
+  lastErrorCode         String?
+  settings              Json           @default("{}")
+  createdAt             DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime       @updatedAt @db.Timestamptz(3)
+  organization          Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany         ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  agent                 Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  conversations         Conversation[]
+  messages              Message[]
+  webhookEvents         WebhookEvent[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, clientCompanyId, id])
+  @@index([organizationId, clientCompanyId, status])
+}
+
+model Contact {
+  id              String         @id @default(cuid())
+  organizationId  String
+  clientCompanyId String
+  phone           String
+  name            String?
+  email           String?
+  locale          String         @default("pt-BR")
+  optedOutAt      DateTime?      @db.Timestamptz(3)
+  consentAt       DateTime?      @db.Timestamptz(3)
+  consentSource   String?
+  metadata        Json           @default("{}")
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany   ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  leads           Lead[]
+  conversations   Conversation[]
+
+  @@unique([organizationId, clientCompanyId, phone])
+  @@unique([organizationId, clientCompanyId, id])
+  @@unique([organizationId, id])
+  @@index([organizationId, email])
+}
+
+model Lead {
+  id                String         @id @default(cuid())
+  organizationId    String
+  clientCompanyId   String
+  contactId         String?
+  assignedToId      String?
+  name              String?
+  phone             String
+  email             String?
+  companyName       String?
+  desiredService    String?
+  desiredProduct    String?
+  approximateBudget Decimal?       @db.Decimal(12, 2)
+  preferredDate     DateTime?      @db.Timestamptz(3)
+  source            String
+  stage             LeadStage      @default(NEW)
+  notes             String?
+  tags              String[]
+  consent           Boolean        @default(false)
+  consentAt         DateTime?      @db.Timestamptz(3)
+  lastInteractionAt DateTime       @default(now()) @db.Timestamptz(3)
+  convertedAt       DateTime?      @db.Timestamptz(3)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
+  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany     ClientCompany  @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  contact           Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  assignedTo        User?          @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  conversations     Conversation[]
+
+  @@unique([organizationId, clientCompanyId, phone])
+  @@unique([organizationId, clientCompanyId, id])
+  @@unique([organizationId, id])
+  @@index([organizationId, stage, lastInteractionAt])
+}
+
+model Conversation {
+  id                  String             @id @default(cuid())
+  organizationId      String
+  clientCompanyId     String
+  agentId             String?
+  agentVersionId      String?
+  channelConnectionId String?
+  contactId           String
+  leadId              String?
+  assignedToId        String?
+  status              ConversationStatus @default(NEW)
+  mode                ConversationMode   @default(AI)
+  unreadCount         Int                @default(0)
+  intent              String?
+  memorySummary       String?
+  collectedData       Json               @default("{}")
+  handoffReason       String?
+  lastMessageAt       DateTime           @default(now()) @db.Timestamptz(3)
+  resolvedAt          DateTime?          @db.Timestamptz(3)
+  createdAt           DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime           @updatedAt @db.Timestamptz(3)
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany       ClientCompany      @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+  agent               Agent?             @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agentVersion        AgentVersion?      @relation(fields: [agentVersionId], references: [id], onDelete: SetNull)
+  channelConnection   ChannelConnection? @relation(fields: [channelConnectionId], references: [id], onDelete: SetNull)
+  contact             Contact            @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  lead                Lead?              @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  assignedTo          User?              @relation("ConversationAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  messages            Message[]
+  usageRecords        UsageRecord[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, clientCompanyId, id])
+  @@unique([organizationId, id, channelConnectionId])
+  @@index([organizationId, status, lastMessageAt])
+  @@index([organizationId, clientCompanyId, contactId])
+}
+
+model Message {
+  id                  String             @id @default(cuid())
+  organizationId      String
+  conversationId      String
+  channelConnectionId String?
+  externalId          String?
+  direction           MessageDirection
+  sender              MessageSender
+  sentByUserId        String?
+  contentType         MessageContentType @default(TEXT)
+  text                String?
+  payload             Json               @default("{}")
+  status              DeliveryStatus     @default(RECEIVED)
+  sourceIds           String[]
+  confidence          Float?
+  errorCode           String?
+  createdAt           DateTime           @default(now()) @db.Timestamptz(3)
+  deliveredAt         DateTime?          @db.Timestamptz(3)
+  readAt              DateTime?          @db.Timestamptz(3)
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation        Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  channelConnection   ChannelConnection? @relation(fields: [channelConnectionId], references: [id], onDelete: SetNull)
+  sentByUser          User?              @relation("HumanMessageSender", fields: [sentByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([channelConnectionId, externalId])
+  @@index([organizationId, conversationId, createdAt])
+}
+
+model Tool {
+  id                   String       @id @default(cuid())
+  organizationId       String
+  key                  String
+  name                 String
+  description          String
+  inputSchema          Json
+  risk                 ToolRisk     @default(LOW)
+  requiresConfirmation Boolean      @default(false)
+  enabled              Boolean      @default(true)
+  createdAt            DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime     @updatedAt @db.Timestamptz(3)
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentTools           AgentTool[]
+
+  @@unique([organizationId, key])
+  @@unique([organizationId, id])
+}
+
+model AgentTool {
+  id             String       @id @default(cuid())
+  organizationId String
+  agentId        String
+  toolId         String
+  enabled        Boolean      @default(true)
+  config         Json         @default("{}")
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent          Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  tool           Tool         @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, toolId])
+  @@index([organizationId, enabled])
+}
+
+model Automation {
+  id              String           @id @default(cuid())
+  organizationId  String
+  clientCompanyId String
+  name            String
+  description     String?
+  status          AutomationStatus @default(DRAFT)
+  trigger         Json
+  conditions      Json             @default("[]")
+  actions         Json
+  maxExecutions   Int              @default(1)
+  cooldownSeconds Int              @default(60)
+  lastRunAt       DateTime?        @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany   ClientCompany    @relation(fields: [clientCompanyId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, clientCompanyId, name])
+  @@index([organizationId, status])
+}
+
+model WebhookEvent {
+  id                  String             @id @default(cuid())
+  organizationId      String?
+  clientCompanyId     String?
+  channelConnectionId String?
+  provider            String
+  externalEventId     String
+  eventType           String
+  status              WebhookStatus      @default(RECEIVED)
+  payload             Json
+  payloadHash         String
+  attempts            Int                @default(0)
+  lastErrorCode       String?
+  receivedAt          DateTime           @default(now()) @db.Timestamptz(3)
+  processedAt         DateTime?          @db.Timestamptz(3)
+  organization        Organization?      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clientCompany       ClientCompany?     @relation(fields: [clientCompanyId], references: [id], onDelete: SetNull)
+  channelConnection   ChannelConnection? @relation(fields: [channelConnectionId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalEventId])
+  @@index([organizationId, clientCompanyId, status, receivedAt])
+}
+
+model UsageRecord {
+  id             String        @id @default(cuid())
+  organizationId String
+  agentId        String?
+  agentVersionId String?
+  conversationId String?
+  kind           UsageKind
+  model          String?
+  inputTokens    Int           @default(0)
+  outputTokens   Int           @default(0)
+  toolCalls      Int           @default(0)
+  durationMs     Int?
+  estimatedCost  Decimal?      @db.Decimal(14, 6)
+  metadata       Json          @default("{}")
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agent          Agent?        @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agentVersion   AgentVersion? @relation(fields: [agentVersionId], references: [id], onDelete: SetNull)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, kind, createdAt])
+  @@index([organizationId, agentId, createdAt])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  actorUserId    String?
+  action         String
+  entityType     String
+  entityId       String?
+  correlationId  String?
+  ipHash         String?
+  before         Json?
+  after          Json?
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, entityType, entityId, createdAt])
+  @@index([organizationId, actorUserId, createdAt])
+}

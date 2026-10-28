@@ -1,0 +1,160 @@
+name: zyrva-agents
+
+x-app-environment: &app-environment
+  APP_MODE: ${APP_MODE:-demo}
+  AUTH_SECRET: ${AUTH_SECRET:-change-me-local-demo-auth-secret}
+  NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:-}
+  DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-leonardo@zyrva.demo}
+  DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-ZyrvaDemo!2026}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-zyrva}:${POSTGRES_PASSWORD:-zyrva_local_only}@postgres:5432/${POSTGRES_DB:-zyrva}?schema=public
+  REDIS_URL: redis://redis:6379
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL_RUNTIME: ${OPENAI_MODEL_RUNTIME:-gpt-5.6-terra}
+  OPENAI_MODEL_BUILDER: ${OPENAI_MODEL_BUILDER:-gpt-5.6-terra}
+  OPENAI_MODEL_EMBEDDINGS: ${OPENAI_MODEL_EMBEDDINGS:-text-embedding-3-small}
+  META_APP_SECRET: ${META_APP_SECRET:-}
+  META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:-}
+  META_ACCESS_TOKEN: ${META_ACCESS_TOKEN:-}
+  META_PHONE_NUMBER_ID: ${META_PHONE_NUMBER_ID:-}
+  META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-}
+  TZ: ${TZ:-America/Fortaleza}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  TRUST_PROXY: ${TRUST_PROXY:-false}
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.5-pg17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zyrva}
+      POSTGRES_USER: ${POSTGRES_USER:-zyrva}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-zyrva_local_only}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - internal
+
+  vector-init:
+    image: pgvector/pgvector:0.8.5-pg17-bookworm
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-zyrva}
+      PGUSER: ${POSTGRES_USER:-zyrva}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-zyrva_local_only}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["psql -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;'"]
+    networks:
+      - internal
+
+  redis:
+    image: redis:8.2.8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+
+  migrate:
+    build:
+      context: .
+      target: migrator
+    restart: "no"
+    environment: *app-environment
+    depends_on:
+      vector-init:
+        condition: service_completed_successfully
+    networks:
+      - internal
+
+  seed:
+    profiles: ["demo"]
+    build:
+      context: .
+      target: migrator
+    command: ["npx", "prisma", "db", "seed"]
+    restart: "no"
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - internal
+
+  app:
+    build:
+      context: .
+      target: runner
+      args:
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:-}
+    restart: unless-stopped
+    environment: *app-environment
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - internal
+
+  worker:
+    profiles: ["production"]
+    build:
+      context: .
+      target: runner
+      args:
+        NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:-}
+    command: ["npm", "run", "worker:meta"]
+    restart: unless-stopped
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - internal
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  internal:
